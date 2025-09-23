@@ -175,17 +175,17 @@ function Get-ValidatedTargetComputer {
     
     if ([string]::IsNullOrWhiteSpace($TargetComputer)) {
         do {
-            $input = Read-Host "`nEnter Target PC Name using FQDN (e.g., SLC-LT126450.v19.med.va.gov)"
-            $input = $input.Trim().ToUpper()
+            $userInput = Read-Host "`nEnter Target PC Name using FQDN (e.g., SLC-LT126450.v19.med.va.gov)"
+            $userInput = $userInput.Trim().ToUpper()
             
-            if ($input -match '^[a-zA-Z0-9\-\.]+\.[a-zA-Z]{2,}$') {
-                $script:TargetComputer = $input
+            if ($userInput -match '^[a-zA-Z0-9\-\.]+\.[a-zA-Z]{2,}$') {
+                $script:TargetComputer = $userInput
                 Write-LogEntry "Target computer set to: $script:TargetComputer"
                 break
             }
             else {
                 Write-Host "✗ Invalid FQDN format. Please use format: hostname.domain.com" -ForegroundColor Red
-                Write-LogEntry "Invalid FQDN format entered: $input" -Level 'WARNING'
+                Write-LogEntry "Invalid FQDN format entered: $userInput" -Level 'WARNING'
             }
         } while ($true)
     }
@@ -203,12 +203,12 @@ function Get-ValidatedConnectionCode {
     
     if ([string]::IsNullOrWhiteSpace($ConnectionCode)) {
         do {
-            $input = Read-Host "`nEnter BFRC Connection Code (numbers only)"
-            $input = $input.Trim()
+            $userInput = Read-Host "`nEnter BFRC Connection Code (numbers only)"
+            $userInput = $userInput.Trim()
             
-            if ($input -match '^\d+$') {
-                $script:ConnectionCode = $input
-                Write-LogEntry "Connection code set (length: $($input.Length))"
+            if ($userInput -match '^\d+$') {
+                $script:ConnectionCode = $userInput
+                Write-LogEntry "Connection code set (length: $($userInput.Length))"
                 break
             }
             else {
