@@ -12,10 +12,10 @@ Adds a description to the AD description field
 ┌─────────────────────────────────────────────────────────────────────────────────────────────┐ 
 │ ORIGIN STORY                                                                                │ 
 ├─────────────────────────────────────────────────────────────────────────────────────────────┤ 
-│   DATE        : 2021.08.26
-│   AUTHOR      : Dallas Bleak
-│   DESCRIPTION : Initial Draft 
-    VERSION     : 1.1 - Changed folder destinations
+│   DATE        : 2021.08.26                                                                  │       
+│   AUTHOR      : Dallas Bleak (Dallas.Bleak@va.gov)                                          │
+│   DESCRIPTION : Initial Draft                                                               │
+│   VERSION     : 1.1                                                                         │
 └─────────────────────────────────────────────────────────────────────────────────────────────┘ 
 
 .PARAMETER Param01 
@@ -54,32 +54,32 @@ function Install-Single {
 }
 
 function Install-MultipleDifferentAD {
-        #====== BEGIN - Create or open file for multiple computer names =====#
-        # Full path of the file
-        $file = "\\va.gov\cn\Salt Lake City\VHASLC\TechDrive\Scripts\fileNames\$env:UserName.txt"
+    #====== BEGIN - Create or open file for multiple computer names =====#
+    # Full path of the file
+    $file = "\\va.gov\cn\Salt Lake City\VHASLC\TechDrive\Scripts\fileNames\$env:UserName.txt"
 
-        #If the file does not exist, create it and open the file to be edited.
-        if (-not(Test-Path -Path $file -PathType Leaf)) {
-            try {
-                $null = New-Item -ItemType File -Path $file -Force -ErrorAction Stop
-                Invoke-Item "\\va.gov\cn\Salt Lake City\VHASLC\TechDrive\Scripts\fileNames\$env:UserName.txt"
-                Read-Host -Prompt "Press any key to continue"
-            }
-            catch {
-                throw $_.Exception.Message
-            }
-        }
-        # If the file already exists open the file to be edited.
-        else {
+    #If the file does not exist, create it and open the file to be edited.
+    if (-not(Test-Path -Path $file -PathType Leaf)) {
+        try {
+            $null = New-Item -ItemType File -Path $file -Force -ErrorAction Stop
             Invoke-Item "\\va.gov\cn\Salt Lake City\VHASLC\TechDrive\Scripts\fileNames\$env:UserName.txt"
             Read-Host -Prompt "Press any key to continue"
-            $computerNameNames = Get-Content -Path $file
-            #Write-Output $computerNameNames
         }
-        #====== END - Create or open file for multiple computer names =====#
+        catch {
+            throw $_.Exception.Message
+        }
+    }
+    # If the file already exists open the file to be edited.
+    else {
+        Invoke-Item "\\va.gov\cn\Salt Lake City\VHASLC\TechDrive\Scripts\fileNames\$env:UserName.txt"
+        Read-Host -Prompt "Press any key to continue"
+        $computerNameNames = Get-Content -Path $file
+        #Write-Output $computerNameNames
+    }
+    #====== END - Create or open file for multiple computer names =====#
 
     #====== BEGIN - Install Apllications on Multiple Computers =====#
-    foreach($computerName in $computerNameNames) {
+    foreach ($computerName in $computerNameNames) {
         Test-Connectivity ($computerName)
         get-service -Name winrm -ComputerName $computerName | start-service
         Get-ADDescriptionChoice ($computerName)
@@ -128,32 +128,33 @@ function Install-MultipleSameAD {
     }
     #====== END - Create or open file for multiple computer names =====#
 
-#====== BEGIN - Install Apllications on Multiple Computers SAME=====#
-$global:AD_Description = Read-Host "PLEASE ENTER A DESCRIPTION FOR ACTIVE DIRECTORY"
-foreach($computerName in $computerNameNames) {
-    Test-Connectivity ($computerName)
-    get-service -Name winrm -ComputerName $computerName | start-service
-    Copy-DLL($computerName)
-    Clear-Host
-    Add-GroupMembers ($computerName)
-    Clear-Host
-    Write-Host "ADDING AD DESCRIPTION "-NoNewline; Write-Host $global:AD_Description -ForegroundColor Green -NoNewline; Write-Host " TO " -NoNewline; Write-Host $computerName -ForegroundColor Blue -NoNewline
-    Set-ADComputer $computerName -Description $global:AD_Description
-    Clear-Host
-    if (0 -eq $global:isDesktop) {
-        Optimize-Power ($computerName)
+    #====== BEGIN - Install Apllications on Multiple Computers SAME=====#
+    $global:AD_Description = Read-Host "PLEASE ENTER A DESCRIPTION FOR ACTIVE DIRECTORY"
+    foreach ($computerName in $computerNameNames) {
+        Test-Connectivity ($computerName)
+        get-service -Name winrm -ComputerName $computerName | start-service
+        Copy-DLL($computerName)
+        Clear-Host
+        Add-GroupMembers ($computerName)
+        Clear-Host
+        Write-Host "ADDING AD DESCRIPTION "-NoNewline; Write-Host $global:AD_Description -ForegroundColor Green -NoNewline; Write-Host " TO " -NoNewline; Write-Host $computerName -ForegroundColor Blue -NoNewline
+        Set-ADComputer $computerName -Description $global:AD_Description
+        Clear-Host
+        if (0 -eq $global:isDesktop) {
+            Optimize-Power ($computerName)
+        }
+        Clear-Host
+        get-service -Name winrm -ComputerName $computerName | start-service
     }
-    Clear-Host
-    get-service -Name winrm -ComputerName $computerName | start-service
-}
-Get-ChoiceLaptopDesktop
-#====== END - Install Apllications on Multiple Computers SAME=====#
+    Get-ChoiceLaptopDesktop
+    #====== END - Install Apllications on Multiple Computers SAME=====#
 }
 
 function Test-Connectivity ($computerName) {
-    if (test-connection -ComputerName $computerName -Count 1 -quiet -buffer 8){
+    if (test-connection -ComputerName $computerName -Count 1 -quiet -buffer 8) {
         write-host "$computerName ONLINE" -ForegroundColor Green
-    } else {
+    }
+    else {
         write-host "$computerName OFFLINE" -ForegroundColor Red
         Get-Choice
     }
@@ -168,7 +169,7 @@ function Copy-DLL($computerName) {
 function Add-GroupMembers ($computerName) {
     write-host "ADDING 'WORKSTAIONADMINS' AND 'VHASLCOI&T' TO REMOTE DESKTOP USERS GROUP"
     try {
-        Invoke-Command -ComputerName $computerName -ErrorAction Stop -ScriptBlock {Add-LocalGroupMember -Group "Remote Desktop Users" -Member "VHASLCOI&T"}
+        Invoke-Command -ComputerName $computerName -ErrorAction Stop -ScriptBlock { Add-LocalGroupMember -Group "Remote Desktop Users" -Member "VHASLCOI&T" }
     }
     catch {
         $theError = $_
@@ -183,13 +184,13 @@ function Add-GroupMembers ($computerName) {
     }
     
     try {
-        Invoke-Command -ComputerName $computerName -ErrorAction Stop -ScriptBlock {Add-LocalGroupMember -Group "Remote Desktop Users" -Member "VHASLCWorkstationAdmins"}
+        Invoke-Command -ComputerName $computerName -ErrorAction Stop -ScriptBlock { Add-LocalGroupMember -Group "Remote Desktop Users" -Member "VHASLCWorkstationAdmins" }
     }
     catch {
         $theError = $_
         if ($theError.Exception.Message -like '*VHA19\vhaslcworkstationadmins*already*') {
             Write-Warning 'VHASLCWorkstationAdmins is already a member of the Remote Desktop Users Group'
-        Start-Sleep -Seconds 2
+            Start-Sleep -Seconds 2
         } 
         elseif ($theError.Exception.Message -Like '*failed*') {
             Write-Host 'Cannot connect to the computer. Make sure computer is in the right Active Directory OU.' -ForegroundColor Red
@@ -200,7 +201,7 @@ function Add-GroupMembers ($computerName) {
     finally {
         Write-Host "`n"
         Write-Host "Current members for the Remote Desktop Users Group " -ForegroundColor Green
-        Invoke-Command -ComputerName $computerName -ScriptBlock {Get-LocalGroupmember -Group "Remote Desktop Users"}
+        Invoke-Command -ComputerName $computerName -ScriptBlock { Get-LocalGroupmember -Group "Remote Desktop Users" }
         Start-Sleep -Seconds 2
     }
 }
@@ -231,13 +232,13 @@ function Optimize-Power ($computerName) {
     Invoke-Command -ComputerName $computerName -ScriptBlock $scriptBlock
 }
     
-function Add-ADDescription ($computerName){
+function Add-ADDescription ($computerName) {
     $global:AD_Description = Read-Host "PLEASE ENTER A DESCRIPTION FOR ACTIVE DIRECTORY"
     Set-ADComputer $computerName -Description $global:AD_Description
 }
 
 
-function Get-ADDescriptionChoice ($computerName){
+function Get-ADDescriptionChoice ($computerName) {
     #====== BEGIN - Get choice from User for install =====#
     Write-Host "DO YOU WANT TO ADD AN AD DESCRIPTION TO $computerName" -ForegroundColor Yellow
     Write-Output "Press 1 to add an AD Descripion"
@@ -245,11 +246,14 @@ function Get-ADDescriptionChoice ($computerName){
     $choice = Read-Host -Prompt "1 or 2"
     if (1 -eq $choice -or 2 -eq $choice) {
         switch ($choice ) {
-            1 { $global:isADDescription = 1
-                $global:AD_Description = Read-Host "PLEASE ENTER A DESCRIPTION FOR ACTIVE DIRECTORY"}
-            2 { $global:isADDescription}
+            1 {
+                $global:isADDescription = 1
+                $global:AD_Description = Read-Host "PLEASE ENTER A DESCRIPTION FOR ACTIVE DIRECTORY"
             }
-    } else {
+            2 { $global:isADDescription }
+        }
+    }
+    else {
         Write-Host "Invalid choice" -ForegroundColor Red
         Start-Sleep -Seconds 1
         Clear-Host
@@ -271,14 +275,19 @@ function Get-ChoiceLaptopDesktop {
     $choice = Read-Host -Prompt "1 or 2"
     if (1 -eq $choice -or 2 -eq $choice) {
         switch ($choice ) {
-            1 { $global:isDesktop
+            1 {
+                $global:isDesktop
                 Clear-Host
-                Get-Choice}
-            2 { $global:isDesktop = 0
-                Clear-Host
-                Get-Choice}
+                Get-Choice
             }
-    } else {
+            2 {
+                $global:isDesktop = 0
+                Clear-Host
+                Get-Choice
+            }
+        }
+    }
+    else {
         Write-Host "Invalid choice" -ForegroundColor Red
         Start-Sleep -Seconds 1
         Clear-Host
@@ -295,11 +304,12 @@ function Get-Choice {
     $choice = Read-Host -Prompt "1 or 2"
     if (1 -eq $choice -or 2 -eq $choice -or 3 -eq $choice) {
         switch ($choice ) {
-            1 {Install-Single}
-            2 {Install-MultipleDifferentAD}
-            3 {Install-MultipleSameAD}
-            }
-    } else {
+            1 { Install-Single }
+            2 { Install-MultipleDifferentAD }
+            3 { Install-MultipleSameAD }
+        }
+    }
+    else {
         Write-Host "Invalid choice" -ForegroundColor Red
         Start-Sleep -Seconds 1
         Clear-Host
