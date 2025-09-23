@@ -34,10 +34,6 @@
     Launches BFRC on specified target with provided connection code
 
 .NOTES
-    Name:     launch_big_fix_remote_enhanced.ps1
-    Author:   Enhanced by Dallas Bleak (based on original by John Phung)
-    Version:  2.0
-    Created:  2025-09-23
     ┌─────────────────────────────────────────────────────────────────────────────────────────────┐ 
     │ ORIGIN STORY                                                                                │ 
     ├─────────────────────────────────────────────────────────────────────────────────────────────┤ 
