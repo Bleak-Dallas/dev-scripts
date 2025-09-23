@@ -14,10 +14,10 @@
     ┌─────────────────────────────────────────────────────────────────────────────────────────────┐ 
     │ ORIGIN STORY                                                                                │ 
     ├─────────────────────────────────────────────────────────────────────────────────────────────┤ 
-    │   DATE        : 2025-08-19                                                                  │
+    │   DATE        : 2025-09-23                                                                  │
     │   AUTHOR      : Dallas Bleak (Dallas.Bleak@va.gov)                                          │
-    │   VERSION     : 1.0                                                                        │
-    │   Run As      : Elevated PowerShell (Run as Administrator) recommended.                     │
+    │   VERSION     : 1.2                                                                         │
+    │   RUN AS      : Elevated PowerShell (Run as Administrator) recommended.                     │
     └─────────────────────────────────────────────────────────────────────────────────────────────┘ 
 #>
 
