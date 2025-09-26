@@ -4,6 +4,53 @@ param(
     [string[]]$AccountsToKeep = @()
 )
 
+<#
+.SYNOPSIS
+    Remotely prune user profiles from a Windows workstation while honoring a caller-supplied
+    preservation list and producing an auditable activity log.
+
+.DESCRIPTION
+    1. Loads the shared utilities module (from local or network locations) and relaunches the script
+       with elevation if required.
+    2. Validates connectivity to the target computer, inventories existing user profiles, and prompts
+       for keep-list entries when none were provided.
+    3. Normalizes keep entries (names/SIDs), surfaces any unmatched accounts, and requests explicit
+       operator confirmation before continuing.
+    4. Invokes a remote removal routine that deletes profiles not included in the keep lists, capturing
+       structured results (removed vs. skipped) and writing before/after snapshots to the log.
+    5. Writes a fully timestamped log to C:\Temp\logs using the shared logging helpers so administrators
+       can review the run end-to-end.
+
+.PARAMETER ComputerName
+    Optional. The remote computer whose local profiles should be evaluated. Prompts if omitted or blank.
+
+.PARAMETER AccountsToKeep
+    Optional. Array of profile names to preserve. Names are normalized (case-insensitive) and mapped to SIDs
+    when possible. A prompt is shown if no keep list is supplied.
+
+.INPUTS
+    None. All input is provided via parameters or interactive prompts.
+
+.OUTPUTS
+    None. Operational output is written to the console for user feedback and to a log file for auditability.
+
+.NOTES
+    ┌─────────────────────────────────────────────────────────────────────────────────────────────┐ 
+    │ ORIGIN STORY                                                                                │ 
+    ├─────────────────────────────────────────────────────────────────────────────────────────────┤ 
+    │   DATE        : 2025-09-26                                                                  │
+    │   AUTHOR      : Dallas Bleak  (Dallas.Bleak@va.gov)                                         │
+    │   VERSION     : 1.0                                                                         │
+    │   Run As      : Elevated PowerShell (Run as Administrator) recommended.                     │
+    └─────────────────────────────────────────────────────────────────────────────────────────────┘
+
+.EXAMPLE
+    PS> .\remove_user_profile.ps1 -ComputerName "SLC-WS12345" -AccountsToKeep @('admin', 'tech')
+
+    Removes all non-system profiles from SLC-WS12345 except "admin" and "tech", recording actions in C:\Temp\logs.
+#>
+
+# region Module bootstrap and elevation
 $scriptDirectory = Split-Path -Path $PSCommandPath -Parent
 $localModulePath = Join-Path -Path $scriptDirectory -ChildPath '..\modules\utilities\utilities.psm1'
 
@@ -48,6 +95,14 @@ Write-Host ("Loaded utilities module from '{0}'." -f $UtilitiesModulePath) -Fore
 
 Invoke-Elevation -BoundParameters $PSBoundParameters -ScriptPath $PSCommandPath
 
+<#
+Logging helpers from utilities module:
+  - Use New-LogSession (via Initialize-LogSession below) to centralize log file creation and metadata.
+  - Use Write-Log (alias of Write-LogEntry) with the returned session for single-line messages and severity coloring.
+  - Use Write-LogSection for grouped entries; helper wrappers below demonstrate common patterns for profile data.
+#>
+
+# region User input and discovery helpers
 function Read-ComputerName {
     param(
         [string]$InitialName
@@ -131,125 +186,75 @@ function Get-RemoteProfiles {
     }
 }
 
-function Initialize-Logger {
+# Logging helper wrappers that tailor the shared utilities module to this script's needs
+function Initialize-LogSession {
     param(
         [Parameter(Mandatory = $true)]
         [string]$ComputerName
     )
 
-    $logRoot = 'C:\Temp\logs'
-    $timestamp = Get-Date -Format 'yyyyMMdd_HHmmss'
-
-    try {
-        if (-not (Test-Path -LiteralPath $logRoot)) {
-            New-Item -Path $logRoot -ItemType Directory -Force | Out-Null
-        }
-    }
-    catch {
-        throw "Failed to ensure log directory '$logRoot'. $_"
+    $metadata = @{
+        ComputerName   = $ComputerName
+        InitiatingHost = $env:COMPUTERNAME
+        InitiatingUser = $env:USERNAME
     }
 
-    $logFilePath = Join-Path $logRoot ("remove_user_profile_{0}_{1}.log" -f $ComputerName, $timestamp)
     $header = "===== remove_user_profile run {0} for {1} =====" -f (Get-Date), $ComputerName
-    Set-Content -Path $logFilePath -Value $header
 
-    return $logFilePath
+    return New-LogSession -LogNamePrefix 'remove_user_profile' -Header $header -Metadata $metadata
 }
 
-function Write-Log {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Message,
-        [Parameter(Mandatory = $true)]
-        [string]$LogPath,
-        [System.ConsoleColor]$Color = [System.ConsoleColor]::Gray,
-        [switch]$NoConsole
-    )
-
-    $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-    $line = "[{0}] {1}" -f $timestamp, $Message
-    Add-Content -Path $LogPath -Value $line
-
-    if (-not $NoConsole) {
-        Write-Host $Message -ForegroundColor $Color
-    }
-}
-
-function Write-ProfileLog {
+function Write-ProfileSection {
     param(
         [Parameter(Mandatory = $true)]
         [string]$Title,
         [object[]]$Profiles,
         [Parameter(Mandatory = $true)]
-        [string]$LogPath
+        [pscustomobject]$Session,
+        [switch]$NoConsole
     )
 
-    Write-Log -Message $Title -LogPath $LogPath -NoConsole
+    Write-LogSection -Session $Session -Title $Title -Items $Profiles -ItemFormatter {
+        param($profileRecord)
 
-    if ($Profiles -and $Profiles.Count -gt 0) {
-        foreach ($profileRecord in $Profiles) {
-            $lastUseStamp = if ($profileRecord.LastUseTime) { $profileRecord.LastUseTime.ToString('yyyy-MM-dd HH:mm:ss') } else { 'n/a' }
-            $entry = " - {0} (SID: {1}; Path: {2}; Loaded: {3}; LastUse: {4})" -f $profileRecord.ProfileName, $profileRecord.SID, $profileRecord.LocalPath, $profileRecord.Loaded, $lastUseStamp
-            Write-Log -Message $entry -LogPath $LogPath -NoConsole
-        }
-    }
-    else {
-        Write-Log -Message " - (none)" -LogPath $LogPath -NoConsole
-    }
+        if (-not $profileRecord) { return '(null)' }
+
+        $lastUseStamp = if ($profileRecord.LastUseTime) { $profileRecord.LastUseTime.ToString('yyyy-MM-dd HH:mm:ss') } else { 'n/a' }
+        "{0} (SID: {1}; Path: {2}; Loaded: {3}; LastUse: {4})" -f $profileRecord.ProfileName, $profileRecord.SID, $profileRecord.LocalPath, $profileRecord.Loaded, $lastUseStamp
+    } -NoConsole:$NoConsole.IsPresent
 }
 
-function Write-AccountsToKeep {
+function Write-AccountsToKeepLog {
     param(
         [string[]]$Accounts,
         [Parameter(Mandatory = $true)]
-        [string]$LogPath
+        [pscustomobject]$Session
     )
 
-    Write-Log -Message "Accounts preserved:" -LogPath $LogPath -NoConsole
-
-    if ($Accounts -and $Accounts.Count -gt 0) {
-        foreach ($account in $Accounts) {
-            Write-Log -Message (" - {0}" -f $account) -LogPath $LogPath -NoConsole
-        }
-    }
-    else {
-        Write-Log -Message " - (none)" -LogPath $LogPath -NoConsole
-    }
+    Write-LogSection -Session $Session -Title 'Accounts preserved:' -Items $Accounts -ItemFormatter { param($account) $account } -NoConsole
 }
 
-function Write-RemovalResults {
+function Write-RemovalResultsLog {
     param(
         [object[]]$RemovedProfiles = @(),
         [object[]]$SkippedProfiles = @(),
         [Parameter(Mandatory = $true)]
-        [string]$LogPath
+        [pscustomobject]$Session
     )
 
     $removedCount = ($RemovedProfiles | Measure-Object).Count
-    Write-Log -Message ("Removed {0} profile(s)." -f $removedCount) -LogPath $LogPath -NoConsole
-
-    if ($removedCount -gt 0) {
-        foreach ($record in $RemovedProfiles) {
-            $entry = " - Removed {0} (SID: {1}; Path: {2}; Loaded: {3}; Reason: {4})" -f $record.ProfileName, $record.SID, $record.LocalPath, $record.Loaded, $record.Reason
-            Write-Log -Message $entry -LogPath $LogPath -NoConsole
-        }
-    }
-    else {
-        Write-Log -Message " - (none removed)" -LogPath $LogPath -NoConsole
-    }
+    Write-Log -Session $Session -Message ("Removed {0} profile(s)." -f $removedCount) -Severity 'Info' -NoConsole
+    Write-LogSection -Session $Session -Title 'Removed profiles' -Items $RemovedProfiles -ItemFormatter {
+        param($record)
+        "{0} (SID: {1}; Path: {2}; Loaded: {3}; Reason: {4})" -f $record.ProfileName, $record.SID, $record.LocalPath, $record.Loaded, $record.Reason
+    } -NoConsole
 
     $skippedCount = ($SkippedProfiles | Measure-Object).Count
-    Write-Log -Message ("Skipped {0} profile(s)." -f $skippedCount) -LogPath $LogPath -NoConsole
-
-    if ($skippedCount -gt 0) {
-        foreach ($record in $SkippedProfiles) {
-            $entry = " - Skipped {0} (Reason: {1}; SID: {2}; Path: {3}; Loaded: {4})" -f $record.ProfileName, $record.Reason, $record.SID, $record.LocalPath, $record.Loaded
-            Write-Log -Message $entry -LogPath $LogPath -NoConsole
-        }
-    }
-    else {
-        Write-Log -Message " - (none skipped)" -LogPath $LogPath -NoConsole
-    }
+    Write-Log -Session $Session -Message ("Skipped {0} profile(s)." -f $skippedCount) -Severity 'Info' -NoConsole
+    Write-LogSection -Session $Session -Title 'Skipped profiles' -Items $SkippedProfiles -ItemFormatter {
+        param($record)
+        "{0} (Reason: {1}; SID: {2}; Path: {3}; Loaded: {4})" -f $record.ProfileName, $record.Reason, $record.SID, $record.LocalPath, $record.Loaded
+    } -NoConsole
 }
 
 function Get-AccountsToKeep {
@@ -344,7 +349,9 @@ function Confirm-Operation {
         }
     }
 }
+# endregion
 
+# region Remote profile evaluation and removal helpers
 function Remove-RemoteProfiles {
     param(
         [Parameter(Mandatory = $true)]
@@ -463,16 +470,20 @@ function Remove-RemoteProfiles {
 }
 
 try {
+    # Gather target computer information and ensure prerequisites are satisfied
     $ComputerName = Read-ComputerName -InitialName $ComputerName
     Test-ComputerConnectivity -ComputerName $ComputerName
 
-    $logFilePath = Initialize-Logger -ComputerName $ComputerName
-    Write-Log -Message ("Log file: {0}" -f $logFilePath) -LogPath $logFilePath -Color ([System.ConsoleColor]::Cyan)
+    # Start a structured logging session and surface the log location
+    $logSession = Initialize-LogSession -ComputerName $ComputerName
+    $logPath = $logSession.LogPath
+    Write-Log -Session $logSession -Message ("Log file: {0}" -f $logPath) -Severity 'Info' -Color ([System.ConsoleColor]::Cyan)
 
     Write-Host ""
+    # Capture the current profile inventory prior to any modifications for before/after auditing
     Write-Host "Retrieving user profile list from '$ComputerName' using the current elevated credentials..." -ForegroundColor Cyan
     $existingProfiles = Get-RemoteProfiles -ComputerName $ComputerName
-    Write-ProfileLog -Title "Profiles before removal" -Profiles $existingProfiles -LogPath $logFilePath
+    Write-ProfileSection -Title "Profiles before removal" -Profiles $existingProfiles -Session $logSession -NoConsole
 
     if ($existingProfiles -and $existingProfiles.Count -gt 0) {
         Write-Host "Current profiles found on '$ComputerName':" -ForegroundColor Cyan
@@ -484,17 +495,19 @@ try {
 
     Write-Host ""
 
+    # Ensure we have an actionable keep-list (prompting interactively when one was not provided)
     if (-not $PSBoundParameters.ContainsKey('AccountsToKeep') -or $AccountsToKeep.Count -eq 0) {
         $AccountsToKeep = Get-AccountsToKeep
     }
 
     $AccountsToKeep = ConvertTo-NormalizedAccounts -Accounts $AccountsToKeep
-    Write-AccountsToKeep -Accounts $AccountsToKeep -LogPath $logFilePath
+    Write-AccountsToKeepLog -Accounts $AccountsToKeep -Session $logSession
 
     $AccountsToKeepSids = @()
     $unmatchedAccounts = @()
 
     if ($AccountsToKeep -and $existingProfiles) {
+        # Resolve requested keep accounts to one or more SIDs so duplicates and roaming profiles remain intact
         $profileLookup = @{}
 
         foreach ($profileRecord in $existingProfiles) {
@@ -524,10 +537,11 @@ try {
     }
 
     if ($AccountsToKeepSids -and $AccountsToKeepSids.Count -gt 0) {
+        # Log the resolved SID list for auditors to cross-reference with the final state
         $AccountsToKeepSids = $AccountsToKeepSids | Sort-Object -Unique
-        Write-Log -Message "Matching profile SIDs preserved:" -LogPath $logFilePath -NoConsole
+        Write-Log -Session $logSession -Message "Matching profile SIDs preserved:" -NoConsole
         foreach ($sid in $AccountsToKeepSids) {
-            Write-Log -Message (" - {0}" -f $sid) -LogPath $logFilePath -NoConsole
+            Write-Log -Session $logSession -Message (" - {0}" -f $sid) -NoConsole
         }
     }
 
@@ -535,19 +549,21 @@ try {
         Write-Host "Warning: No matching profiles found for the following keep entries:" -ForegroundColor Yellow
         foreach ($missingAccount in $unmatchedAccounts) {
             Write-Host ("  {0}" -f $missingAccount) -ForegroundColor Yellow
-            Write-Log -Message ("Warning: No matching profile found for keep entry '{0}'." -f $missingAccount) -LogPath $logFilePath
+            Write-Log -Session $logSession -Message ("Warning: No matching profile found for keep entry '{0}'." -f $missingAccount) -Severity 'Warning'
         }
     }
 
     if (-not (Confirm-Operation -ComputerName $ComputerName -AccountsToKeep $AccountsToKeep)) {
+        # Gracefully exit if the operator decides to abort after reviewing the inputs
         Write-Host ""
         Write-Host "Operation cancelled. No profiles were removed from '$ComputerName'." -ForegroundColor Yellow
-        Write-Log -Message ("Operation cancelled. No profiles were removed from '{0}'." -f $ComputerName) -LogPath $logFilePath
+        Write-Log -Session $logSession -Message ("Operation cancelled. No profiles were removed from '{0}'." -f $ComputerName) -Severity 'Warning'
         return
     }
 
     Write-Host ""
     Write-Host "Removing user profiles from '$ComputerName'..." -ForegroundColor Cyan
+    # Invoke the remote cleanup using the curated keep lists
 
     $removalResult = Remove-RemoteProfiles -ComputerName $ComputerName -AccountsToKeep $AccountsToKeep -AccountSidsToKeep $AccountsToKeepSids
 
@@ -555,6 +571,7 @@ try {
     $skippedProfiles = @()
 
     if ($removalResult) {
+        # Normalize the removal payload for easier reporting/logging downstream
         if ($removalResult.Removed) {
             $removedProfiles = @($removalResult.Removed)
         }
@@ -566,12 +583,13 @@ try {
     $removedProfileCount = ($removedProfiles | Measure-Object).Count
     $skippedProfileCount = ($skippedProfiles | Measure-Object).Count
 
-    Write-Log -Message ("Removed {0} profile(s) from '{1}'." -f $removedProfileCount, $ComputerName) -LogPath $logFilePath
-    Write-Log -Message ("Skipped {0} profile(s) on '{1}'." -f $skippedProfileCount, $ComputerName) -LogPath $logFilePath
-    Write-RemovalResults -RemovedProfiles $removedProfiles -SkippedProfiles $skippedProfiles -LogPath $logFilePath
+    Write-Log -Session $logSession -Message ("Removed {0} profile(s) from '{1}'." -f $removedProfileCount, $ComputerName)
+    Write-Log -Session $logSession -Message ("Skipped {0} profile(s) on '{1}'." -f $skippedProfileCount, $ComputerName)
+    Write-RemovalResultsLog -RemovedProfiles $removedProfiles -SkippedProfiles $skippedProfiles -Session $logSession
 
     $remainingProfiles = Get-RemoteProfiles -ComputerName $ComputerName
-    Write-ProfileLog -Title "Profiles after removal" -Profiles $remainingProfiles -LogPath $logFilePath
+    # Publish a second snapshot so operators can compare the delta post-removal
+    Write-ProfileSection -Title "Profiles after removal" -Profiles $remainingProfiles -Session $logSession -NoConsole
 
     Write-Host ""
     if ($removedProfileCount -gt 0) {
@@ -598,7 +616,8 @@ try {
         Write-Host "No user profiles remain on '$ComputerName'." -ForegroundColor Green
     }
 
-    Write-Log -Message ("Profile removal script completed for '{0}' at {1}." -f $ComputerName, (Get-Date)) -LogPath $logFilePath
+    # Record a terminating event with timestamp to close the log session
+    Write-Log -Session $logSession -Message ("Profile removal script completed for '{0}' at {1}." -f $ComputerName, (Get-Date))
     Write-Host ("Profile removal script completed for '{0}' at {1}." -f $ComputerName, (Get-Date)) -ForegroundColor Cyan
 }
 catch {
