@@ -161,6 +161,7 @@ function Invoke-Elevation {
         $argumentList = @(
             '-NoProfile'
             '-ExecutionPolicy', 'Bypass'
+            '-NoExit'
             '-File', "`"$ScriptPath`""
         )
 
@@ -194,9 +195,17 @@ function Invoke-Elevation {
             $argumentList += "`"$stringValue`""
         }
 
-        Start-Process -FilePath $processPath -ArgumentList $argumentList -Verb RunAs | Out-Null
-        exit
+        try {
+            Start-Process -FilePath $processPath -ArgumentList $argumentList -Verb RunAs -PassThru | Out-Null
+        }
+        catch {
+            throw "Invoke-Elevation: Elevation request failed or was cancelled. $_"
+        }
+
+        return $false
     }
+
+    return $true
 }
 
 <#
