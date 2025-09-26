@@ -107,11 +107,31 @@ function Invoke-Elevation {
     [CmdletBinding()]
     param(
         [Parameter()]
-        [System.Collections.IDictionary] $BoundParameters
+        [System.Collections.IDictionary] $BoundParameters,
+        [Parameter()]
+        [string] $ScriptPath
     )
 
     if (-not $BoundParameters) {
         $BoundParameters = @{}
+    }
+
+    if (-not $ScriptPath) {
+        $ScriptPath = $MyInvocation.PSCommandPath
+        if (-not $ScriptPath -and $PSCommandPath) {
+            $ScriptPath = $PSCommandPath
+        }
+    }
+
+    if (-not $ScriptPath) {
+        throw 'Invoke-Elevation: Unable to determine script path for elevation.'
+    }
+
+    try {
+        $ScriptPath = (Resolve-Path -Path $ScriptPath -ErrorAction Stop).Path
+    }
+    catch {
+        throw "Invoke-Elevation: Unable to resolve script path '$ScriptPath'. $_"
     }
 
     $currentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -119,14 +139,13 @@ function Invoke-Elevation {
 
     if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
         Write-Host 'Elevation required. Relaunching with administrative privileges...' -ForegroundColor Yellow
-
         # Relaunch with the same host (pwsh or powershell)
         $processPath = (Get-Process -Id $PID).Path
 
         $argumentList = @(
             '-NoProfile'
             '-ExecutionPolicy', 'Bypass'
-            '-File', "`"$PSCommandPath`""
+            '-File', "`"$ScriptPath`""
         )
 
         foreach ($entry in $BoundParameters.GetEnumerator()) {
