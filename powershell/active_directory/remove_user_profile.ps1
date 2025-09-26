@@ -93,7 +93,11 @@ if (-not $moduleLoaded) {
 
 Write-Host ("Loaded utilities module from '{0}'." -f $UtilitiesModulePath) -ForegroundColor Green
 
-Invoke-Elevation -BoundParameters $PSBoundParameters -ScriptPath $PSCommandPath
+$elevationResult = Invoke-Elevation -BoundParameters $PSBoundParameters -ScriptPath $PSCommandPath
+if (-not $elevationResult) {
+    Write-Host 'Elevated session launched in a new window. Complete the workflow there and close the elevated window when finished.' -ForegroundColor Cyan
+    return
+}
 
 <#
 Logging helpers from utilities module:
