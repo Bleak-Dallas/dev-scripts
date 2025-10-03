@@ -1,0 +1,11 @@
+{
+  "packages": [
+    { "id": "Python.Python.3",              "source": "winget" },
+    { "id": "Microsoft.WindowsTerminal",    "source": "winget" },
+    { "id": "Notepad++.Notepad++",          "source": "winget" },
+    { "id": "Microsoft.VisualStudioCode",   "source": "winget" },
+    { "id": "7zip.7zip",                    "source": "winget" },
+    { "id": "Starship.Starship",            "source": "winget" },
+    { "id": "Git.Git",                      "source": "winget" }
+  ]
+}
